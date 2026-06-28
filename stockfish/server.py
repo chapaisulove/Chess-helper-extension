@@ -55,8 +55,21 @@ class StockfishEngine:
         return self.process.stdout.readline().strip()
 
     def _check_alive(self):
-        """Restart if process died — caller must hold self.lock."""
-        if self.process is None or self.process.poll() is not None:
+        """Restart if process died or communication pipes are broken — caller must hold self.lock."""
+        is_alive = False
+        if self.process is not None and self.process.poll() is None:
+            # Try checking if stdout/stdin streams are still open and not closed
+            if self.process.stdin and not self.process.stdin.closed and self.process.stdout and not self.process.stdout.closed:
+                is_alive = True
+        
+        if not is_alive:
+            print("Stockfish process died or communication pipes broken. Restarting engine...")
+            if self.process:
+                try:
+                    self.process.terminate()
+                    self.process.wait(timeout=1)
+                except Exception:
+                    pass
             self._launch()
 
     def get_best_move(self, fen: str) -> str:
