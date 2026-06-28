@@ -2,100 +2,114 @@ import http.server
 import json
 import subprocess
 import os
-import sys
 import threading
 
 PORT = 8000
-STOCKFISH_PATH = os.path.join(os.path.dirname(__file__), "stockfish-windows-x86-64-avx2.exe")
+STOCKFISH_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockfish-windows-x86-64-avx2.exe")
+
 
 class StockfishEngine:
-    def ensure_process(self):
-        # Check if process died
-        if self.process.poll() is not None:
-            print("Stockfish process died. Restarting...")
-            self.start_process()
+    """Wraps a Stockfish subprocess.
+    
+    IMPORTANT: The lock is only held in get_best_move().
+    _send() and _read() are internal helpers that must be called
+    with the lock already held — they do NOT acquire the lock themselves.
+    This avoids the deadlock that occurred when send()/readline()
+    each tried to acquire a non-reentrant lock that was already held.
+    """
 
-    def start_process(self):
+    def __init__(self):
+        if not os.path.exists(STOCKFISH_PATH):
+            raise FileNotFoundError(f"Stockfish not found: {STOCKFISH_PATH}")
+        self.lock = threading.Lock()
+        self.process = None
+        self._launch()
+
+    def _launch(self):
+        """Start the Stockfish process and wait for it to be ready."""
         self.process = subprocess.Popen(
             [STOCKFISH_PATH],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
-            bufsize=1
+            bufsize=1,
         )
-        # Directly write to stdin to avoid recursive send()
+        # Send UCI init
         self.process.stdin.write("uci\nisready\n")
         self.process.stdin.flush()
-        
-        while True:
+        # Wait for engine ready
+        for _ in range(200):  # max 200 lines before giving up
             line = self.process.stdout.readline().strip()
             if line == "readyok":
-                break
+                return
+        raise RuntimeError("Stockfish did not respond with readyok")
 
-    def __init__(self):
-        if not os.path.exists(STOCKFISH_PATH):
-            raise FileNotFoundError(f"Stockfish binary not found at {STOCKFISH_PATH}")
-        
-        self.lock = threading.Lock()
-        print("Starting Stockfish process...")
-        self.start_process()
-        print("Stockfish engine is ready.")
+    def _send(self, cmd: str):
+        """Send command — caller must hold self.lock."""
+        self.process.stdin.write(cmd + "\n")
+        self.process.stdin.flush()
 
-    def send(self, command):
-        try:
-            self.process.stdin.write(command + "\n")
-            self.process.stdin.flush()
-        except Exception as e:
-            print(f"Error sending command to Stockfish: {e}")
-            # Non-recursive re-initialization if writing fails
-            try:
-                self.process.terminate()
-            except:
-                pass
-            self.start_process()
-            self.process.stdin.write(command + "\n")
-            self.process.stdin.flush()
+    def _read(self) -> str:
+        """Read one line — caller must hold self.lock."""
+        return self.process.stdout.readline().strip()
 
-    def readline(self):
-        try:
-            return self.process.stdout.readline().strip()
-        except Exception as e:
-            print(f"Error reading from Stockfish: {e}")
-            return ""
+    def _check_alive(self):
+        """Restart if process died — caller must hold self.lock."""
+        if self.process is None or self.process.poll() is not None:
+            self._launch()
 
-    def get_best_move(self, fen):
+    def get_best_move(self, fen: str) -> str:
+        """Thread-safe: compute best move for a given FEN string."""
         with self.lock:
-            self.ensure_process()
-            # Set position
-            self.send(f"position fen {fen}")
-            # Search with depth 10 (extremely fast, ~10-50ms, yet plays at a high level)
-            self.send("go depth 10")
-            
-            while True:
-                line = self.readline()
-                if not line: # Subprocess crash or read failure
+            self._check_alive()
+            self._send(f"position fen {fen}")
+            self._send("go depth 12")
+            for _ in range(500):  # safety limit
+                line = self._read()
+                if not line:
                     break
                 if line.startswith("bestmove"):
                     parts = line.split()
-                    if len(parts) >= 2:
+                    if len(parts) >= 2 and parts[1] != "(none)":
                         return parts[1]
-                    break
+                    return None
         return None
 
     def close(self):
-        try:
-            self.send("quit")
-        except:
-            pass
-        if self.process:
-            self.process.terminate()
-            self.process.wait()
+        with self.lock:
+            try:
+                self._send("quit")
+            except Exception:
+                pass
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=3)
+            except Exception:
+                pass
 
-# Global engine instance
-engine = None
 
-class StockfishHandler(http.server.BaseHTTPRequestHandler):
+# Single global engine instance
+engine = StockfishEngine()
+print("Stockfish engine started successfully.")
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Print request log to console
+        print(f"[{self.address_string()}] {format % args}")
+
+    def _send_json(self, code: int, data: dict):
+        body = json.dumps(data).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -104,52 +118,42 @@ class StockfishHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        if self.path == "/get_move":
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            
-            try:
-                data = json.loads(post_data.decode('utf-8'))
-                fen = data.get("fen")
-                if not fen:
-                    raise ValueError("Missing 'fen' field")
-                
-                best_move = engine.get_best_move(fen)
-                
-                response_data = {"bestmove": best_move}
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(json.dumps(response_data).encode('utf-8'))
-                
-            except Exception as e:
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
-        else:
-            self.send_response(404)
-            self.end_headers()
+        if self.path != "/get_move":
+            self._send_json(404, {"error": "Not found"})
+            return
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length)
+
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except Exception:
+            self._send_json(400, {"error": "Invalid JSON"})
+            return
+
+        fen = data.get("fen", "").strip()
+        if not fen:
+            self._send_json(400, {"error": "Missing fen"})
+            return
+
+        try:
+            move = engine.get_best_move(fen)
+            self._send_json(200, {"bestmove": move})
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+
 
 def run():
-    global engine
-    try:
-        engine = StockfishEngine()
-    except Exception as e:
-        print(f"Error starting Stockfish: {e}")
-        sys.exit(1)
-
-    print(f"Starting web server on http://localhost:{PORT}")
-    server_address = ('', PORT)
-    httpd = http.server.HTTPServer(server_address, StockfishHandler)
+    httpd = http.server.HTTPServer(("", PORT), Handler)
+    print(f"Server listening on http://localhost:{PORT}")
+    print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down server...")
+        print("\nStopping...")
         engine.close()
         httpd.server_close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run()

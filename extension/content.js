@@ -1,408 +1,256 @@
-// Floating UI control panel
-const ui = document.createElement("div");
-ui.id = "stockfish-helper-ui";
-ui.style.position = "fixed";
-ui.style.top = "10px";
-ui.style.left = "10px";
-ui.style.zIndex = "999999";
-ui.style.backgroundColor = "#262421";
-ui.style.color = "#bababa";
-ui.style.padding = "10px";
-ui.style.borderRadius = "8px";
-ui.style.border = "2px solid #312e2b";
-ui.style.fontFamily = "sans-serif";
-ui.style.boxShadow = "0 4px 6px rgba(0,0,0,0.3)";
-ui.style.display = "flex";
-ui.style.flexDirection = "column";
-ui.style.gap = "8px";
+// === Stockfish Helper Extension =============================================
 
-const title = document.createElement("div");
-title.innerText = "Stockfish Helper";
-title.style.fontWeight = "bold";
-title.style.color = "#81b64c";
-title.style.textAlign = "center";
+// â”€â”€â”€ UI Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const ui = document.createElement('div');
+ui.id = 'stockfish-helper-ui';
+Object.assign(ui.style, {
+  position: 'fixed', top: '10px', left: '10px', zIndex: '999999',
+  backgroundColor: '#262421', color: '#bababa', padding: '12px',
+  borderRadius: '10px', border: '2px solid #81b64c', fontFamily: 'sans-serif',
+  boxShadow: '0 4px 16px rgba(0,0,0,0.5)', display: 'flex',
+  flexDirection: 'column', gap: '8px', minWidth: '160px',
+  cursor: 'move',
+  userSelect: 'none',
+});
+
+const title = document.createElement('div');
+title.innerText = 'Stockfish Helper';
+Object.assign(title.style, { fontWeight: 'bold', color: '#81b64c', textAlign: 'center', fontSize: '14px', pointerEvents: 'none' });
 ui.appendChild(title);
 
-const suggestBtn = document.createElement("button");
-suggestBtn.innerText = "Suggest Move";
-suggestBtn.style.backgroundColor = "#81b64c";
-suggestBtn.style.color = "#fff";
-suggestBtn.style.border = "none";
-suggestBtn.style.padding = "6px 12px";
-suggestBtn.style.borderRadius = "4px";
-suggestBtn.style.cursor = "pointer";
-suggestBtn.style.fontWeight = "bold";
-suggestBtn.addEventListener("mouseover", () => suggestBtn.style.backgroundColor = "#a3d16c");
-suggestBtn.addEventListener("mouseout", () => suggestBtn.style.backgroundColor = "#81b64c");
+const suggestBtn = document.createElement('button');
+suggestBtn.id = 'sf-suggest-btn';
+suggestBtn.innerText = 'Suggest Move';
+Object.assign(suggestBtn.style, {
+  backgroundColor: '#81b64c', color: '#fff', border: 'none',
+  padding: '7px 14px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+});
+suggestBtn.addEventListener('mouseover', () => suggestBtn.style.backgroundColor = '#a3d16c');
+suggestBtn.addEventListener('mouseout',  () => suggestBtn.style.backgroundColor = '#81b64c');
 ui.appendChild(suggestBtn);
 
-// Auto Suggest Checkbox UI
-const toggleContainer = document.createElement("div");
-toggleContainer.style.display = "flex";
-toggleContainer.style.alignItems = "center";
-toggleContainer.style.gap = "6px";
-toggleContainer.style.fontSize = "12px";
+const toggleRow = document.createElement('div');
+Object.assign(toggleRow.style, { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' });
+const autoToggle = document.createElement('input');
+autoToggle.type = 'checkbox';
+autoToggle.id = 'sf-auto-toggle';
+const autoLabel = document.createElement('label');
+autoLabel.htmlFor = 'sf-auto-toggle';
+autoLabel.innerText = 'Auto Suggest';
+autoLabel.style.cursor = 'pointer';
+toggleRow.appendChild(autoToggle);
+toggleRow.appendChild(autoLabel);
+ui.appendChild(toggleRow);
 
-const autoToggle = document.createElement("input");
-autoToggle.type = "checkbox";
-autoToggle.id = "auto-suggest-checkbox";
-
-const autoLabel = document.createElement("label");
-autoLabel.htmlFor = "auto-suggest-checkbox";
-autoLabel.innerText = "Auto Suggest";
-autoLabel.style.cursor = "pointer";
-
-toggleContainer.appendChild(autoToggle);
-toggleContainer.appendChild(autoLabel);
-ui.appendChild(toggleContainer);
-
-const statusText = document.createElement("div");
-statusText.innerText = "Ready";
-statusText.style.fontSize = "12px";
-statusText.style.textAlign = "center";
+const statusText = document.createElement('div');
+statusText.id = 'sf-status';
+statusText.innerText = 'Ready';
+Object.assign(statusText.style, { fontSize: '11px', textAlign: 'center', wordBreak: 'break-word', pointerEvents: 'none' });
 ui.appendChild(statusText);
 
 document.body.appendChild(ui);
 
-let autoSuggestEnabled = false;
-let observer = null;
-let debounceTimeout = null;
-let lastSentFen = "";
+// Draggable functionality
+let isDragging = false;
+let dragStartX, dragStartY;
+let dragStartLeft, dragStartTop;
 
-// Remove existing highlight overlays
+ui.addEventListener('mousedown', (e) => {
+  // Don't drag if clicking buttons or checkboxes
+  if (e.target === suggestBtn || e.target === autoToggle || e.target === autoLabel) return;
+  
+  isDragging = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  const rect = ui.getBoundingClientRect();
+  dragStartLeft = rect.left;
+  dragStartTop = rect.top;
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  const dx = e.clientX - dragStartX;
+  const dy = e.clientY - dragStartY;
+  ui.style.left = `${dragStartLeft + dx}px`;
+  ui.style.top = `${dragStartTop + dy}px`;
+});
+
+document.addEventListener('mouseup', () => {
+  isDragging = false;
+});
+
+// â”€â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+let autoEnabled = false;
+let observer    = null;
+let debounce    = null;
+let lastFen     = '';
+
+// â”€â”€â”€ Board helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 function clearHighlights() {
-  const existing = document.querySelectorAll(".stockfish-highlight");
-  existing.forEach(el => el.remove());
+  document.querySelectorAll('.sf-highlight').forEach(el => el.remove());
 }
 
-// Draw highlight on a square
-function highlightSquare(square, color, boardElement, isFlipped) {
-  const files = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8 };
-  const fileChar = square[0];
-  const rankNum = parseInt(square[1], 10);
-  
-  const fileVal = files[fileChar];
-  const rankVal = rankNum;
-  
-  if (!fileVal || isNaN(rankVal)) return;
-
-  const highlight = document.createElement("div");
-  highlight.className = "stockfish-highlight";
-  highlight.style.position = "absolute";
-  highlight.style.width = "12.5%";
-  highlight.style.height = "12.5%";
-  highlight.style.pointerEvents = "none";
-  highlight.style.backgroundColor = color;
-  highlight.style.opacity = "0.5";
-  highlight.style.zIndex = "10";
-
-  let leftPercent, bottomPercent;
-  if (isFlipped) {
-    leftPercent = (8 - fileVal) * 12.5;
-    bottomPercent = (rankVal - 1) * 12.5;
-  } else {
-    leftPercent = (fileVal - 1) * 12.5;
-    bottomPercent = (rankVal - 1) * 12.5;
-  }
-
-  highlight.style.left = `${leftPercent}%`;
-  highlight.style.bottom = `${bottomPercent}%`;
-
-  boardElement.appendChild(highlight);
+function findBoard() {
+  return (
+    document.querySelector('chess-board') ||
+    document.querySelector('.board')      ||
+    document.getElementById('board')      ||
+    (() => { const p = document.querySelector('.piece'); return p ? p.parentElement : null; })()
+  );
 }
 
-// Draw a directional arrow from start square to end square
-function drawArrow(fromSquare, toSquare, boardElement, isFlipped) {
-  const files = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8 };
-  
-  const f1 = files[fromSquare[0]];
-  const r1 = parseInt(fromSquare[1], 10);
-  const f2 = files[toSquare[0]];
-  const r2 = parseInt(toSquare[1], 10);
-
-  if (!f1 || isNaN(r1) || !f2 || isNaN(r2)) return;
-
-  let x1, y1, x2, y2;
-  if (isFlipped) {
-    x1 = (8.5 - f1) * 12.5;
-    y1 = (r1 - 0.5) * 12.5;
-    x2 = (8.5 - f2) * 12.5;
-    y2 = (r2 - 0.5) * 12.5;
-  } else {
-    x1 = (f1 - 0.5) * 12.5;
-    y1 = (8.5 - r1) * 12.5;
-    x2 = (f2 - 0.5) * 12.5;
-    y2 = (8.5 - r2) * 12.5;
-  }
-
-  // Create SVG element
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "stockfish-highlight stockfish-arrow");
-  svg.style.position = "absolute";
-  svg.style.top = "0";
-  svg.style.left = "0";
-  svg.style.width = "100%";
-  svg.style.height = "100%";
-  svg.style.pointerEvents = "none";
-  svg.style.zIndex = "999";
-
-  // Create marker definition for the arrowhead
-  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-  const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
-  marker.setAttribute("id", "stockfish-arrowhead");
-  marker.setAttribute("markerWidth", "8");
-  marker.setAttribute("markerHeight", "8");
-  marker.setAttribute("refX", "4");
-  marker.setAttribute("refY", "3");
-  marker.setAttribute("orient", "auto");
-
-  const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-  polygon.setAttribute("points", "0 0, 6 3, 0 6");
-  polygon.setAttribute("fill", "#ff3b30"); // Highly visible bright red
-
-  marker.appendChild(polygon);
-  defs.appendChild(marker);
-  svg.appendChild(defs);
-
-  // Draw connecting line
-  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  line.setAttribute("x1", `${x1}%`);
-  line.setAttribute("y1", `${y1}%`);
-  line.setAttribute("x2", `${x2}%`);
-  line.setAttribute("y2", `${y2}%`);
-  line.setAttribute("stroke", "#ff3b30");
-  line.setAttribute("stroke-width", "5");
-  line.setAttribute("marker-end", "url(#stockfish-arrowhead)");
-  line.setAttribute("opacity", "0.8");
-
-  svg.appendChild(line);
-  boardElement.appendChild(svg);
+function highlightSquare(sq, color, board, flipped) {
+  const FILES = { a:1, b:2, c:3, d:4, e:5, f:6, g:7, h:8 };
+  const file = FILES[sq[0]], rank = parseInt(sq[1], 10);
+  if (!file || isNaN(rank)) return;
+  const left   = flipped ? (8 - file) * 12.5 : (file - 1) * 12.5;
+  const bottom = (rank - 1) * 12.5;
+  const div = document.createElement('div');
+  div.className = 'sf-highlight';
+  Object.assign(div.style, {
+    position: 'absolute', width: '12.5%', height: '12.5%',
+    left: left + '%', bottom: bottom + '%',
+    backgroundColor: color, opacity: '0.55', pointerEvents: 'none', zIndex: '10',
+  });
+  board.appendChild(div);
 }
 
-function findBoardElement() {
-  // Try <chess-board> first
-  let el = document.querySelector("chess-board");
-  if (el) return el;
-  
-  // Try elements with class/id board
-  el = document.querySelector(".board") || document.getElementById("board") || document.querySelector(".chess-board");
-  if (el) return el;
-  
-  // Fallback: look for the parent of the pieces
-  const pieces = document.querySelectorAll(".piece");
-  if (pieces.length > 0) {
-    return pieces[0].parentElement;
-  }
-  return null;
+function drawArrow(from, to, board, flipped) {
+  const FILES = { a:1, b:2, c:3, d:4, e:5, f:6, g:7, h:8 };
+  const f1 = FILES[from[0]], r1 = parseInt(from[1], 10);
+  const f2 = FILES[to[0]],   r2 = parseInt(to[1], 10);
+  if (!f1 || !f2) return;
+  const cx = f => flipped ? (8.5 - f) * 12.5 : (f - 0.5) * 12.5;
+  const cy = r => flipped ? (r - 0.5) * 12.5 : (8.5 - r) * 12.5;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'sf-highlight');
+  Object.assign(svg.style, { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '999' });
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+  marker.setAttribute('id', 'sf-head');
+  marker.setAttribute('markerWidth', '8'); marker.setAttribute('markerHeight', '8');
+  marker.setAttribute('refX', '4'); marker.setAttribute('refY', '3'); marker.setAttribute('orient', 'auto');
+  const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  poly.setAttribute('points', '0 0, 6 3, 0 6'); poly.setAttribute('fill', '#ff3b30');
+  marker.appendChild(poly); defs.appendChild(marker); svg.appendChild(defs);
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', cx(f1) + '%'); line.setAttribute('y1', cy(r1) + '%');
+  line.setAttribute('x2', cx(f2) + '%'); line.setAttribute('y2', cy(r2) + '%');
+  line.setAttribute('stroke', '#ff3b30'); line.setAttribute('stroke-width', '5');
+  line.setAttribute('marker-end', 'url(#sf-head)'); line.setAttribute('opacity', '0.85');
+  svg.appendChild(line); board.appendChild(svg);
 }
 
-// Generate FEN from board layout
 function getFen() {
-  const boardEl = findBoardElement();
-  if (!boardEl) return null;
-
-  const pieces = boardEl.querySelectorAll(".piece");
-  const grid = Array(8).fill(null).map(() => Array(8).fill(null));
-
-  pieces.forEach(piece => {
-    const classList = piece.className.split(" ");
-    let pieceType = null;
-    let squareCoords = null;
-
-    classList.forEach(cls => {
-      // Find piece identity, e.g., 'wp', 'bp', 'wn', etc.
-      if (cls.length === 2 && (cls.startsWith("w") || cls.startsWith("b"))) {
-        pieceType = cls;
-      }
-      // Find square coordinates, e.g., 'square-12'
-      if (cls.startsWith("square-")) {
-        squareCoords = cls.replace("square-", "");
-      }
+  const board = findBoard();
+  if (!board) return null;
+  const grid = Array.from({ length: 8 }, () => Array(8).fill(null));
+  const PMAP = { wp:'P',wn:'N',wb:'B',wr:'R',wq:'Q',wk:'K', bp:'p',bn:'n',bb:'b',br:'r',bq:'q',bk:'k' };
+  board.querySelectorAll('.piece').forEach(piece => {
+    let type = null, sq = null;
+    piece.className.split(' ').forEach(cls => {
+      if (cls.length === 2 && (cls.startsWith('w') || cls.startsWith('b'))) type = cls;
+      if (cls.startsWith('square-')) sq = cls.slice(7);
     });
-
-    if (pieceType && squareCoords && squareCoords.length === 2) {
-      const file = parseInt(squareCoords[0], 10);
-      const rank = parseInt(squareCoords[1], 10);
-
-      // FEN mapping: rank 8 is row 0, rank 1 is row 7
-      const row = 8 - rank;
-      const col = file - 1;
-
-      // Map piece to standard FEN chars
-      const pMap = {
-        wp: 'P', wn: 'N', wb: 'B', wr: 'R', wq: 'Q', wk: 'K',
-        bp: 'p', bn: 'n', bb: 'b', br: 'r', bq: 'q', bk: 'k'
-      };
-
-      grid[row][col] = pMap[pieceType];
+    if (type && sq && sq.length === 2) {
+      const col = parseInt(sq[0], 10) - 1, row = 8 - parseInt(sq[1], 10);
+      if (PMAP[type] && row >= 0 && row < 8 && col >= 0 && col < 8) grid[row][col] = PMAP[type];
     }
   });
-
-  // Build FEN board string
-  const fenRows = [];
-  for (let r = 0; r < 8; r++) {
-    let emptyCount = 0;
-    let rowStr = "";
-    for (let c = 0; c < 8; c++) {
-      if (grid[r][c] === null) {
-        emptyCount++;
-      } else {
-        if (emptyCount > 0) {
-          rowStr += emptyCount;
-          emptyCount = 0;
-        }
-        rowStr += grid[r][c];
-      }
-    }
-    if (emptyCount > 0) {
-      rowStr += emptyCount;
-    }
-    fenRows.push(rowStr);
-  }
-
-  const boardFen = fenRows.join("/");
-
-  // Determine active turn
-  let activeColor = "w";
-  const whiteClockTurn = document.querySelector(".clock-white.clock-player-turn");
-  const blackClockTurn = document.querySelector(".clock-black.clock-player-turn");
-  
-  if (whiteClockTurn) {
-    activeColor = "w";
-  } else if (blackClockTurn) {
-    activeColor = "b";
-  } else {
-    // Fallback: check move list
-    const moves = document.querySelectorAll(".move");
-    if (moves.length > 0) {
-      const lastMove = moves[moves.length - 1];
-      // If white node exists but black node doesn't, it's black's turn
-      const nodes = lastMove.querySelectorAll(".node");
-      if (nodes.length === 1) {
-        activeColor = "b";
-      }
-    }
-  }
-
-  // Return partial FEN (board state + turn)
-  return `${boardFen} ${activeColor} KQkq - 0 1`;
+  const fenRows = grid.map(row => {
+    let s = '', e = 0;
+    row.forEach(c => { if (c) { if (e) { s += e; e = 0; } s += c; } else e++; });
+    if (e) s += e;
+    return s;
+  });
+  let color = 'w';
+  if (document.querySelector('.clock-black.clock-player-turn')) color = 'b';
+  else if (document.querySelector('.clock-white.clock-player-turn')) color = 'w';
+  else if (document.querySelectorAll('.move .node').length % 2 === 1) color = 'b';
+  return fenRows.join('/') + ' ' + color + ' KQkq - 0 1';
 }
 
-// Request and draw move suggestion
+// â”€â”€â”€ Fetch best move from server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 async function suggestMove() {
-  const boardEl = findBoardElement();
-  if (!boardEl) {
-    statusText.innerText = "No chess board found!";
+  const board = findBoard();
+  if (!board) { statusText.innerText = 'No board found'; return; }
+  
+  const flipped = board.classList.contains('flipped');
+  const isWhiteTurn = !!document.querySelector('.clock-white.clock-player-turn');
+  const isBlackTurn = !!document.querySelector('.clock-black.clock-player-turn');
+
+  // Check if it is the user's turn
+  const isUserTurn = flipped ? isBlackTurn : isWhiteTurn;
+
+  // Only check clocks if a turn clock is actually active on the page.
+  // If neither clock is showing the turn (e.g. before the game starts), we can suggest moves.
+  const clocksActive = isWhiteTurn || isBlackTurn;
+
+  if (clocksActive && !isUserTurn) {
+    statusText.innerText = "Opponent's turn. Waiting...";
+    clearHighlights();
     return;
   }
 
   const fen = getFen();
-  if (!fen) {
-    statusText.innerText = "Error parsing board!";
-    return;
-  }
-
-  // If FEN hasn't changed, don't query
-  if (fen === lastSentFen) return;
-  lastSentFen = fen;
-
+  if (!fen) { statusText.innerText = 'Cannot read board'; return; }
+  if (fen === lastFen) return;
+  lastFen = fen;
   clearHighlights();
-  statusText.innerText = "Thinking...";
-  const isFlipped = boardEl.classList.contains("flipped");
-
+  statusText.innerText = 'Thinking...';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch("http://localhost:8000/get_move", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ fen })
+    const res = await fetch('http://localhost:8000/get_move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fen }),
+      mode: 'cors',
+      signal: controller.signal,
     });
-
-    if (!response.ok) {
-      throw new Error("HTTP error " + response.status);
-    }
-
-    const result = await response.json();
-    if (result.bestmove) {
-      const move = result.bestmove; // e.g. "e2e4" or "e7e8q"
-      const from = move.substring(0, 2);
-      const to = move.substring(2, 4);
-
-      // Use clearly distinct colors: Orange for START (what to move), Green for END (where to move)
-      highlightSquare(from, "rgba(255, 102, 0, 0.45)", boardEl, isFlipped); // Bright Orange Start
-      highlightSquare(to, "rgba(52, 199, 89, 0.45)", boardEl, isFlipped);  // Apple Green End
-      
-      // Draw a bright red directional arrow from START to END
-      drawArrow(from, to, boardEl, isFlipped);
-
-      statusText.innerText = `Move: ${move}`;
-    } else {
-      statusText.innerText = "No move suggested.";
-    }
+    clearTimeout(timer);
+    if (!res.ok) { statusText.innerText = 'Server error ' + res.status; return; }
+    const data = await res.json();
+    const move = data.bestmove;
+    if (!move) { statusText.innerText = 'No move'; return; }
+    const from = move.slice(0, 2), to = move.slice(2, 4);
+    highlightSquare(from, 'rgba(255,102,0,0.45)', board, flipped);
+    highlightSquare(to,   'rgba(52,199,89,0.45)',  board, flipped);
+    drawArrow(from, to, board, flipped);
+    statusText.innerText = 'Best: ' + move;
   } catch (err) {
-    console.error(err);
-    statusText.innerText = "Error: " + err.message;
+    clearTimeout(timer);
+    statusText.innerText = err.name === 'AbortError'
+      ? 'Timeout - is server running?'
+      : 'Error: ' + err.message;
+    console.error('[SF Helper]', err);
   }
 }
 
-// Observe board modifications for auto-suggestion
-function startObserving() {
-  const boardEl = findBoardElement();
-  if (!boardEl) return;
+// â”€â”€â”€ Auto observer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+function startObserver() {
+  const board = findBoard(); if (!board) return;
   if (observer) observer.disconnect();
-
-  observer = new MutationObserver((mutations) => {
-    let pieceChanged = false;
-    for (let mutation of mutations) {
-      if (mutation.type === "childList" || (mutation.type === "attributes" && mutation.attributeName === "class")) {
-        pieceChanged = true;
-        break;
-      }
-    }
-    if (pieceChanged) {
-      if (debounceTimeout) clearTimeout(debounceTimeout);
-      debounceTimeout = setTimeout(() => {
-        suggestMove();
-      }, 300); // 300ms debounce to wait for animations to complete
-    }
-  });
-
-  observer.observe(boardEl, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["class"]
-  });
+  observer = new MutationObserver(() => { clearTimeout(debounce); debounce = setTimeout(suggestMove, 400); });
+  observer.observe(board, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 }
 
-function stopObserving() {
-  if (observer) {
-    observer.disconnect();
-    observer = null;
-  }
-  if (debounceTimeout) {
-    clearTimeout(debounceTimeout);
-    debounceTimeout = null;
-  }
+function stopObserver() {
+  if (observer) { observer.disconnect(); observer = null; }
+  clearTimeout(debounce); debounce = null;
 }
 
-// Click event listener
-suggestBtn.addEventListener("click", () => {
-  suggestMove();
-});
+// â”€â”€â”€ Event listeners â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// Toggle listener
-autoToggle.addEventListener("change", (e) => {
-  autoSuggestEnabled = e.target.checked;
-  if (autoSuggestEnabled) {
-    suggestMove();
-    startObserving();
-  } else {
-    stopObserving();
-    clearHighlights();
-    statusText.innerText = "Ready";
-    lastSentFen = "";
-  }
+suggestBtn.addEventListener('click', suggestMove);
+
+autoToggle.addEventListener('change', e => {
+  autoEnabled = e.target.checked;
+  if (autoEnabled) { suggestMove(); startObserver(); }
+  else { stopObserver(); clearHighlights(); statusText.innerText = 'Ready'; lastFen = ''; }
 });

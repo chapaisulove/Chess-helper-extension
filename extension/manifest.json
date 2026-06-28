@@ -1,13 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Chess.com Stockfish Helper",
-  "version": "1.0",
-  "description": "Calculates and highlights the best moves on chess.com using local Stockfish.",
+  "version": "2.0",
+  "description": "Highlights the best chess moves on chess.com using a local Stockfish engine.",
   "permissions": [
     "activeTab"
   ],
   "host_permissions": [
-    "https://*.chess.com/*"
+    "https://*.chess.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "content_scripts": [
     {
